@@ -122,6 +122,63 @@ def business_profit_metric(y_true, y_pred, amount):
         'num_fraudes_perdidas': mask_false_negative.sum()
     }
 
+def refinar_dataset(df):
+    import numpy as np
+
+    # Remove colunas com None
+    colunas_para_remover = ['model_score', 'tx_approve']
+    df = df.drop(columns=[col for col in colunas_para_remover if col in df.columns])
+
+    # Conversões de data
+    df['tx_datetime'] = pd.to_datetime(df['tx_datetime'])
+    df['card_first_transaction'] = pd.to_datetime(df['card_first_transaction'])
+    df['terminal_operation_start'] = pd.to_datetime(df['terminal_operation_start'])
+
+    # Novas features temporais
+    df['tx_hour'] = df['tx_datetime'].dt.hour
+    df['tx_dow'] = df['tx_datetime'].dt.dayofweek
+    df['card_age_days'] = (df['tx_datetime'] - df['card_first_transaction']).dt.days
+    df['terminal_age_days'] = (df['tx_datetime'] - df['terminal_operation_start']).dt.days
+
+    # Histórico da última transação
+    df = df.sort_values(['card_id', 'tx_datetime'])
+    df['tx_amount_prev'] = df.groupby('card_id')['tx_amount'].shift(1).fillna(0)
+    df['hours_since_prev'] = (
+        df['tx_datetime'] - df.groupby('card_id')['tx_datetime'].shift(1)
+    ).dt.total_seconds().div(3600).fillna(0)
+
+    # Cálculo de velocidade
+    df['prev_lat'] = df.groupby('card_id')['latitude'].shift(1)
+    df['prev_lon'] = df.groupby('card_id')['longitude'].shift(1)
+
+    def haversine(lat1, lon1, lat2, lon2):
+        R = 6371
+        phi1 = np.radians(lat1)
+        phi2 = np.radians(lat2)
+        dphi = np.radians(lat2 - lat1)
+        dlambda = np.radians(lon2 - lon1)
+        a = np.sin(dphi / 2) ** 2 + np.cos(phi1) * np.cos(phi2) * np.sin(dlambda / 2) ** 2
+        return 2 * R * np.arcsin(np.sqrt(a))
+
+    df['distance_km'] = haversine(df['prev_lat'], df['prev_lon'], df['latitude'], df['longitude'])
+    df['travel_time_h'] = df['hours_since_prev'].replace(0, np.nan)
+    df['speed_kmh'] = df['distance_km'] / df['travel_time_h']
+    df['travel_speed'] = df['speed_kmh']
+
+    # Remove colunas auxiliares
+    df = df.drop(columns=['prev_lat', 'prev_lon', 'distance_km', 'travel_time_h', 'speed_kmh'], errors='ignore')
+
+    return df
+
+@st.cache_data
+def convert_df_to_feather_bytes(df):
+    import io
+    buffer = io.BytesIO()
+    df.reset_index(drop=True).to_feather(buffer)
+    buffer.seek(0)
+    return buffer
+
+
 # Carregar modelo do MLflow
 @st.cache_resource
 def load_mlflow_model(model_uri):
@@ -169,6 +226,12 @@ with st.sidebar:
     if uploaded_file:
         try:
             df_preview = pd.read_feather(uploaded_file)
+            df_preview = df_preview.dropna(axis=1, how='all')
+
+            try:
+                df_preview = refinar_dataset(df_preview)
+            except Exception as e:
+                st.warning("⚠️ Dataset bruto carregado. Refinamento não aplicado (colunas ausentes).")
             st.success(f"✅ {len(df_preview):,} transações")
             
             # Verificar se tem labels
@@ -202,6 +265,17 @@ with col1:
         try:
             # Carregar dataset
             df = pd.read_feather(uploaded_file)
+            df_preview = df_preview.dropna(axis=1, how='all')
+            df = refinar_dataset(df)
+
+            # Gera botão de download do dataset refinado
+            feather_buffer = convert_df_to_feather_bytes(df)
+            st.download_button(
+                label="📥 Baixar Dataset Refinado",
+                data=feather_buffer,
+                file_name="dataset_refinado.feather",
+                mime="application/octet-stream"
+            )
             
             st.markdown("### 📋 Informações do Dataset")
             
