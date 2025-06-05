@@ -13,7 +13,7 @@ def create_refined(df_novo: pd.DataFrame) -> pd.DataFrame:
     # 3.1) Carrega os dados de pagadores e vendedores
     df_payers = pd.read_feather('data/payers_raw.feather')
     df_sellers = pd.read_feather('data/seller_raw.feather')
-    df_transactions = pd.read_feather('data/transactions_raw.feather')
+    df_transactions = pd.read_feather('data/transactions_maio.feather')
     df_transactions = pd.concat([df_transactions, df_novo], ignore_index=True)
 
     # 3.2) Merge com pagadores (via card_id → card_hash)
