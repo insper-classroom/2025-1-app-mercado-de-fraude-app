@@ -1,0 +1,225 @@
+================================================================================
+EXECUÇÃO DO MODELO DE DETECÇÃO DE FRAUDES
+================================================================================
+Data/Hora: 2025-06-05 14:24:58
+Modelo (Run ID): bc390b0166cb4d22ba1a7d3ef0e30a1d
+MLflow URI: http://18.231.44.164:8080
+Threshold: 0.5
+----------------------------------------
+DADOS PROCESSADOS:
+  • Total de transações: 1,055,091
+  • Fraudes detectadas: 4,625
+  • Taxa de alerta: 0.44%
+  • Volume total: R$ 79,771,024.00
+  • Valor médio: R$ 75.61
+----------------------------------------
+FEATURES UTILIZADAS:
+   1. tx_datetime
+   2. tx_amount
+   3. tx_amount_prev
+   4. hours_since_prev
+   5. tx_hour
+   6. tx_dow
+   7. card_age_days
+   8. terminal_age_days
+   9. card_bin
+  10. latitude
+  11. longitude
+  12. travel_speed
+  13. estado
+----------------------------------------
+ESTATÍSTICAS DOS SCORES:
+  • Score mínimo: 0.0005
+  • Score máximo: 0.9811
+  • Score médio: 0.0261
+  • Score mediano: 0.0166
+----------------------------------------
+DADOS COMPLETOS (JSON):
+{
+  "timestamp": "2025-06-05 14:24:58",
+  "modelo_versao": "bc390b0166cb4d22ba1a7d3ef0e30a1d",
+  "mlflow_tracking_uri": "http://18.231.44.164:8080",
+  "threshold_usado": 0.5,
+  "total_transacoes": 1055091,
+  "fraudes_detectadas": 4625,
+  "taxa_alerta": 0.4383508152377378,
+  "features_utilizadas": [
+    "tx_datetime",
+    "tx_amount",
+    "tx_amount_prev",
+    "hours_since_prev",
+    "tx_hour",
+    "tx_dow",
+    "card_age_days",
+    "terminal_age_days",
+    "card_bin",
+    "latitude",
+    "longitude",
+    "travel_speed",
+    "estado"
+  ],
+  "dataset_info": {
+    "tem_labels": false,
+    "volume_total": 79771024.0,
+    "valor_medio": 75.60582733154297
+  },
+  "estatisticas_scores": {
+    "score_minimo": 0.0005005223217293677,
+    "score_maximo": 0.9810753383591544,
+    "score_medio": 0.02605327811630169,
+    "score_mediano": 0.01658978438494507
+  }
+}
+
+================================================================================
+
+================================================================================
+EXECUÇÃO DO MODELO DE DETECÇÃO DE FRAUDES
+================================================================================
+Data/Hora: 2025-06-05 14:26:18
+Modelo (Run ID): bc390b0166cb4d22ba1a7d3ef0e30a1d
+MLflow URI: http://18.231.44.164:8080
+Threshold: 0.5
+----------------------------------------
+DADOS PROCESSADOS:
+  • Total de transações: 1,055,091
+  • Fraudes detectadas: 4,625
+  • Taxa de alerta: 0.44%
+  • Volume total: R$ 79,771,024.00
+  • Valor médio: R$ 75.61
+----------------------------------------
+FEATURES UTILIZADAS:
+   1. tx_datetime
+   2. tx_amount
+   3. tx_amount_prev
+   4. hours_since_prev
+   5. tx_hour
+   6. tx_dow
+   7. card_age_days
+   8. terminal_age_days
+   9. card_bin
+  10. latitude
+  11. longitude
+  12. travel_speed
+  13. estado
+----------------------------------------
+ESTATÍSTICAS DOS SCORES:
+  • Score mínimo: 0.0005
+  • Score máximo: 0.9811
+  • Score médio: 0.0261
+  • Score mediano: 0.0166
+----------------------------------------
+DADOS COMPLETOS (JSON):
+{
+  "timestamp": "2025-06-05 14:26:18",
+  "modelo_versao": "bc390b0166cb4d22ba1a7d3ef0e30a1d",
+  "mlflow_tracking_uri": "http://18.231.44.164:8080",
+  "threshold_usado": 0.5,
+  "total_transacoes": 1055091,
+  "fraudes_detectadas": 4625,
+  "taxa_alerta": 0.4383508152377378,
+  "features_utilizadas": [
+    "tx_datetime",
+    "tx_amount",
+    "tx_amount_prev",
+    "hours_since_prev",
+    "tx_hour",
+    "tx_dow",
+    "card_age_days",
+    "terminal_age_days",
+    "card_bin",
+    "latitude",
+    "longitude",
+    "travel_speed",
+    "estado"
+  ],
+  "dataset_info": {
+    "tem_labels": false,
+    "volume_total": 79771024.0,
+    "valor_medio": 75.60582733154297
+  },
+  "estatisticas_scores": {
+    "score_minimo": 0.0005005223217293677,
+    "score_maximo": 0.9810753383591544,
+    "score_medio": 0.02605327811630169,
+    "score_mediano": 0.01658978438494507
+  }
+}
+
+================================================================================
+
+================================================================================
+EXECUÇÃO DO MODELO DE DETECÇÃO DE FRAUDES
+================================================================================
+Data/Hora: 2025-06-05 14:31:08
+Modelo (Run ID): bc390b0166cb4d22ba1a7d3ef0e30a1d
+MLflow URI: http://18.231.44.164:8080
+Threshold: 0.5
+----------------------------------------
+DADOS PROCESSADOS:
+  • Total de transações: 1
+  • Fraudes detectadas: 0
+  • Taxa de alerta: 0.00%
+  • Volume total: R$ 85.58
+  • Valor médio: R$ 85.58
+----------------------------------------
+FEATURES UTILIZADAS:
+   1. tx_datetime
+   2. tx_amount
+   3. tx_amount_prev
+   4. hours_since_prev
+   5. tx_hour
+   6. tx_dow
+   7. card_age_days
+   8. terminal_age_days
+   9. card_bin
+  10. latitude
+  11. longitude
+  12. travel_speed
+  13. estado
+----------------------------------------
+ESTATÍSTICAS DOS SCORES:
+  • Score mínimo: 0.0197
+  • Score máximo: 0.0197
+  • Score médio: 0.0197
+  • Score mediano: 0.0197
+----------------------------------------
+DADOS COMPLETOS (JSON):
+{
+  "timestamp": "2025-06-05 14:31:08",
+  "modelo_versao": "bc390b0166cb4d22ba1a7d3ef0e30a1d",
+  "mlflow_tracking_uri": "http://18.231.44.164:8080",
+  "threshold_usado": 0.5,
+  "total_transacoes": 1,
+  "fraudes_detectadas": 0,
+  "taxa_alerta": 0.0,
+  "features_utilizadas": [
+    "tx_datetime",
+    "tx_amount",
+    "tx_amount_prev",
+    "hours_since_prev",
+    "tx_hour",
+    "tx_dow",
+    "card_age_days",
+    "terminal_age_days",
+    "card_bin",
+    "latitude",
+    "longitude",
+    "travel_speed",
+    "estado"
+  ],
+  "dataset_info": {
+    "tem_labels": false,
+    "volume_total": 85.58000183105469,
+    "valor_medio": 85.58000183105469
+  },
+  "estatisticas_scores": {
+    "score_minimo": 0.0196738104806578,
+    "score_maximo": 0.0196738104806578,
+    "score_medio": 0.0196738104806578,
+    "score_mediano": 0.0196738104806578
+  }
+}
+
+================================================================================
+
