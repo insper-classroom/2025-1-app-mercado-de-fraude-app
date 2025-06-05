@@ -2,12 +2,139 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import plotly.graph_objects as go
 import mlflow
 import mlflow.sklearn
 import warnings
 
 warnings.filterwarnings("ignore")
+
+# =========================
+# 0) FUNÇÃO create_refined ATUALIZADA
+# =========================
+
+def create_refined(df_transactions: pd.DataFrame) -> pd.DataFrame:
+    """
+    Recebe um DataFrame de transações (sem exigir 'is_fraud' ou 'estado')
+    e retorna um DataFrame 'refined' contendo as features temporais, de deslocamento,
+    e preenche 'estado' com 'sp' para cada linha.
+    """
+    # 1) Carrega os dados de pagadores e vendedores
+    df_payers = pd.read_feather('data/payers_raw.feather')
+    df_sellers = pd.read_feather('data/seller_raw.feather')
+
+    # 2) Merge com pagadores
+    df = df_transactions.merge(
+        df_payers,
+        left_on='card_id',
+        right_on='card_hash',
+        how='left',
+        suffixes=('', '_payer')
+    )
+
+    # 3) Merge com vendedores
+    df = df.merge(
+        df_sellers,
+        on='terminal_id',
+        how='left',
+        suffixes=('', '_seller')
+    )
+
+    # 4) Seleção das colunas necessárias para o raw_merge (sem 'is_fraud' e sem 'estado')
+    desired = [
+        'transaction_id',
+        'tx_datetime',
+        'tx_date',
+        'tx_time',
+        'tx_amount',
+        'card_id',
+        'card_bin',
+        'card_first_transaction',
+        'terminal_id',
+        'latitude',
+        'longitude',
+        'terminal_operation_start',
+        'terminal_soft_descriptor'
+    ]
+    df_raw_merge = df[desired].copy()
+
+    # 5) Conversão de latitude/longitude para float
+    df_raw_merge['latitude']  = df_raw_merge['latitude'].astype(float)
+    df_raw_merge['longitude'] = df_raw_merge['longitude'].astype(float)
+
+    # 6) Conversão de datas e extração de features temporais
+    df_raw_merge['tx_datetime']              = pd.to_datetime(df_raw_merge['tx_datetime'])
+    df_raw_merge['card_first_transaction']   = pd.to_datetime(df_raw_merge['card_first_transaction'])
+    df_raw_merge['terminal_operation_start'] = pd.to_datetime(df_raw_merge['terminal_operation_start'])
+
+    df_raw_merge['tx_hour'] = df_raw_merge['tx_datetime'].dt.hour
+    df_raw_merge['tx_dow']  = df_raw_merge['tx_datetime'].dt.dayofweek
+
+    df_raw_merge['card_age_days'] = (
+        df_raw_merge['tx_datetime'] - df_raw_merge['card_first_transaction']
+    ).dt.days
+    df_raw_merge['terminal_age_days'] = (
+        df_raw_merge['tx_datetime'] - df_raw_merge['terminal_operation_start']
+    ).dt.days
+
+    # 7) Histórico do cartão: valor e intervalo entre transações
+    df_raw_merge = df_raw_merge.sort_values(['card_id', 'tx_datetime'])
+    df_raw_merge['tx_amount_prev'] = (
+        df_raw_merge.groupby('card_id')['tx_amount']
+        .shift(1)
+        .fillna(0)
+    )
+    df_raw_merge['hours_since_prev'] = (
+        df_raw_merge['tx_datetime']
+        - df_raw_merge.groupby('card_id')['tx_datetime'].shift(1)
+    ).dt.total_seconds().div(3600).fillna(0)
+
+    # 8) Cálculo de travel_speed via fórmula de Haversine
+    df_raw_merge['prev_lat'] = df_raw_merge.groupby('card_id')['latitude'].shift(1)
+    df_raw_merge['prev_lon'] = df_raw_merge.groupby('card_id')['longitude'].shift(1)
+
+    def haversine(lat1, lon1, lat2, lon2):
+        R = 6371  # Raio da Terra em km
+        phi1 = np.radians(lat1)
+        phi2 = np.radians(lat2)
+        dphi = np.radians(lat2 - lat1)
+        dlambda = np.radians(lon2 - lon1)
+        a = (np.sin(dphi / 2)**2
+             + np.cos(phi1) * np.cos(phi2) * np.sin(dlambda / 2)**2)
+        return 2 * R * np.arcsin(np.sqrt(a))
+
+    df_raw_merge['distance_km'] = haversine(
+        df_raw_merge['prev_lat'],
+        df_raw_merge['prev_lon'],
+        df_raw_merge['latitude'],
+        df_raw_merge['longitude']
+    )
+    df_raw_merge['travel_time_h'] = df_raw_merge['hours_since_prev'].replace(0, np.nan)
+    df_raw_merge['speed_kmh']     = df_raw_merge['distance_km'] / df_raw_merge['travel_time_h']
+    df_raw_merge['travel_speed']  = df_raw_merge['speed_kmh']
+
+    # 9) Preenche 'estado' com valor fixo 'sp'
+    df_raw_merge['estado'] = 'sp'
+
+    # 10) Seleção das colunas finais para o “refined” (incluindo 'estado')
+    features = [
+        'tx_datetime',
+        'tx_amount',
+        'tx_amount_prev',
+        'hours_since_prev',
+        'tx_hour',
+        'tx_dow',
+        'card_age_days',
+        'terminal_age_days',
+        'card_bin',
+        'latitude',
+        'longitude',
+        'travel_speed',
+        'estado'
+    ]
+    df_refined = df_raw_merge[features].reset_index(drop=True)
+
+    return df_refined
+
 
 # =========================
 # 1) CONFIGURAÇÕES DE MODELO (no topo, em funções)
@@ -34,7 +161,7 @@ def load_model_from_mlflow(run_id: str):
     """
     Carrega o modelo salvo no MLflow pelo run_id.
     Retorna (model, True) se carregou com sucesso, ou (None, False) em caso de erro.
-    Internamente, espera que o modelo esteja registrado em “runs:/<run_id>/model”.
+    Internamente, espera que o modelo esteja registrado em “runs:/<run_id>/pipeline-final”.
     """
     modelo = None
     sucesso = False
@@ -42,7 +169,7 @@ def load_model_from_mlflow(run_id: str):
         model_uri = f"runs:/{run_id}/pipeline-final"
         modelo = mlflow.sklearn.load_model(model_uri)
         sucesso = True
-    except Exception as e:
+    except Exception:
         sucesso = False
         modelo = None
     return modelo, sucesso
@@ -194,14 +321,14 @@ with col_config:
             st.error("❌ Erro ao ler o arquivo .feather")
 
     st.markdown("---")
-    st.caption(f"Modelo obtido de: runs:/{RUN_ID}/model")
+    st.caption(f"Modelo obtido de: runs:/{RUN_ID}/pipeline-final")
     st.caption(f"Tracking URI: {MLFLOW_TRACKING_URI}")
 
 # ----- Coluna de ANÁLISE (tudo que envolve métricas, gráficos e predição) -----
 with col_analysis:
     if (uploaded_file is not None) and model_loaded:
         try:
-            df = pd.read_feather(uploaded_file)
+            df_raw = pd.read_feather(uploaded_file)
 
             st.markdown("### 📋 Informações do Dataset")
             col_i1, col_i2, col_i3 = st.columns(3)
@@ -215,7 +342,7 @@ with col_analysis:
                                 border-left: 4px solid #009ee3; 
                                 margin-bottom: 1rem;">
                         <div style="font-size: 2rem; font-weight: bold; color: #1e88e5;">
-                            {len(df):,}
+                            {len(df_raw):,}
                         </div>
                         <div style="color: #666; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px;">
                             Total de Transações
@@ -226,9 +353,9 @@ with col_analysis:
                 )
 
             with col_i2:
-                if "is_fraud" in df.columns:
-                    fraud_count = df["is_fraud"].sum()
-                    fraud_rate = (fraud_count / len(df)) * 100
+                if "is_fraud" in df_raw.columns:
+                    fraud_count = df_raw["is_fraud"].sum()
+                    fraud_rate = (fraud_count / len(df_raw)) * 100
                     st.markdown(
                         f"""
                         <div style="background: white; 
@@ -268,8 +395,8 @@ with col_analysis:
                     )
 
             with col_i3:
-                if "tx_amount" in df.columns:
-                    total_amount = df["tx_amount"].sum()
+                if "tx_amount" in df_raw.columns:
+                    total_amount = df_raw["tx_amount"].sum()
                     st.markdown(
                         f"""
                         <div style="background: white; 
@@ -293,37 +420,40 @@ with col_analysis:
             # Botão para executar análise de fraude
             # -----------------------------------
             if st.button("🚀 Executar Análise de Fraudes"):
-                with st.spinner("↪️ Realizando predições e calculando métricas..."):
+                with st.spinner("↪️ Formatando dados, realizando predições e calculando métricas..."):
                     try:
-                        # Prepara X_test e y_true (se houver “is_fraud”)
-                        if "is_fraud" in df.columns:
-                            X_test = df.drop(columns=["is_fraud"])
-                            y_true = df["is_fraud"].values
-                            has_labels = True
+                        # 1) Separa y_true (se existir) e remove de df_raw
+                        if "is_fraud" in df_raw.columns:
+                            y_true = df_raw["is_fraud"].values
+                            df_raw = df_raw.drop(columns=["is_fraud"])
                         else:
-                            X_test = df.copy()
                             y_true = None
-                            has_labels = False
 
-                        # Gera probabilidade de fraude usando model.predict_proba
+                        # 2) Chama a função que gera o df_refined (inclui 'estado'='sp')
+                        df_refined = create_refined(df_raw)
+
+                        # 3) Prepara X_test
+                        X_test = df_refined.copy()
+
+                        # 4) Predição de probabilidade
                         if hasattr(model, "predict_proba"):
                             y_pred_proba = model.predict_proba(X_test)[:, 1]
                         else:
                             y_pred_binary = model.predict(X_test)
                             y_pred_proba = y_pred_binary.astype(float)
 
-                        # Converte para binário usando DEFAULT_THRESHOLD
+                        # 5) Converte para binário
                         y_pred = (y_pred_proba >= DEFAULT_THRESHOLD).astype(int)
 
-                        # Valores para cálculo financeiro
+                        # 6) Valores para métricas financeiras
                         amounts = (
                             X_test["tx_amount"].values
                             if "tx_amount" in X_test.columns
                             else np.ones(len(X_test))
                         )
 
-                        # 1) Resultados Financeiros (se há labels)
-                        if has_labels:
+                        # 7) Se existirem labels, calculamos métricas de negócio
+                        if y_true is not None:
                             business_metrics = business_profit_metric(
                                 y_true, y_pred, amounts
                             )
@@ -396,7 +526,7 @@ with col_analysis:
                                     unsafe_allow_html=True,
                                 )
 
-                            # 2) Métricas Operacionais
+                            # 8) Métricas Operacionais
                             st.markdown("### 📊 Métricas Operacionais")
                             col_o1, col_o2, col_o3, col_o4 = st.columns(4, gap="large")
 
@@ -455,7 +585,7 @@ with col_analysis:
                                                 border-left: 4px solid #009ee3; 
                                                 margin-bottom: 1rem;">
                                         <div style="font-size: 2rem; font-weight: bold; color: #1e88e5;">
-                                            {detection_rate:.1f}%
+                                            {detection_rate:.1f}%  
                                         </div>
                                         <div style="color: #666; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px;">
                                             Taxa de Detecção
@@ -476,7 +606,7 @@ with col_analysis:
                                                 border-left: 4px solid #009ee3; 
                                                 margin-bottom: 1rem;">
                                         <div style="font-size: 2rem; font-weight: bold; color: #1e88e5;">
-                                            {fraud_pred_count:,}
+                                            {fraud_pred_count:,}  
                                         </div>
                                         <div style="color: #666; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px;">
                                             Alertas de Fraude
@@ -487,7 +617,7 @@ with col_analysis:
                                 )
                         else:
                             # Caso não haja labels, mostra apenas contagem de alertas
-                            st.markdown("### 🔍 Resultados da Predição")
+                            st.markdown("### 🔍 Resultados da Predição (sem labels)")
                             fraud_pred_count = y_pred.sum()
                             fraud_pred_rate = (fraud_pred_count / len(y_pred)) * 100
 
@@ -502,7 +632,7 @@ with col_analysis:
                                                 border-left: 4px solid #009ee3; 
                                                 margin-bottom: 1rem;">
                                         <div style="font-size: 2rem; font-weight: bold; color: #1e88e5;">
-                                            {fraud_pred_count:,}
+                                            {fraud_pred_count:,}  
                                         </div>
                                         <div style="color: #666; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px;">
                                             Alertas de Fraude
@@ -521,7 +651,7 @@ with col_analysis:
                                                 border-left: 4px solid #009ee3; 
                                                 margin-bottom: 1rem;">
                                         <div style="font-size: 2rem; font-weight: bold; color: #1e88e5;">
-                                            {fraud_pred_rate:.2f}%
+                                            {fraud_pred_rate:.2f}%  
                                         </div>
                                         <div style="color: #666; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px;">
                                             Taxa de Alerta
@@ -532,7 +662,7 @@ with col_analysis:
                                 )
 
                         # ---------------------------------------------
-                        # 3) Visualizações: Histograma de scores e Matriz
+                        # 9) Visualizações: Histograma de scores e Matriz
                         # ---------------------------------------------
                         st.markdown("### 📈 Visualizações")
 
@@ -557,8 +687,8 @@ with col_analysis:
                         )
                         st.plotly_chart(fig_scores, use_container_width=True)
 
-                        # Matriz de Confusão (se tem labels)
-                        if has_labels:
+                        # Matriz de Confusão (se houver labels)
+                        if y_true is not None:
                             from sklearn.metrics import confusion_matrix
 
                             cm = confusion_matrix(y_true, y_pred)
@@ -575,10 +705,10 @@ with col_analysis:
                             st.plotly_chart(fig_cm, use_container_width=True)
 
                         # ---------------------------------------------
-                        # 4) Top 10 transações mais suspeitas
+                        # 10) Top 10 transações mais suspeitas
                         # ---------------------------------------------
                         st.markdown("### 🔍 Top 10 Transações Mais Suspeitas")
-                        df_results = df.copy()
+                        df_results = df_refined.copy()
                         df_results["fraud_score"] = y_pred_proba
                         df_results["fraud_prediction"] = y_pred
 
@@ -586,9 +716,7 @@ with col_analysis:
                         display_cols = ["fraud_score", "fraud_prediction"]
                         if "tx_amount" in top_fraud_scores.columns:
                             display_cols.insert(0, "tx_amount")
-                        if "is_fraud" in top_fraud_scores.columns:
-                            display_cols.append("is_fraud")
-                        for c in ["tx_hour", "estado", "travel_speed"]:
+                        for c in ["tx_hour", "travel_speed"]:
                             if c in top_fraud_scores.columns:
                                 display_cols.append(c)
 
@@ -613,7 +741,7 @@ with col_analysis:
             3. Clique em “🚀 Executar Análise de Fraudes” quando o modelo e dataset estiverem prontos.
 
             ### 📌 Detalhes importantes:
-            - O modelo já está pré-configurado para rodar em `runs:/{RUN_ID}/model`  
+            - O modelo já está pré-configurado para rodar em `runs:/{RUN_ID}/pipeline-final`  
             - O Threshold padrão é 0.50 (caso queira alterar, ajuste a variável `DEFAULT_THRESHOLD` no topo)  
             - O Tracking URI usado é `MLFLOW_TRACKING_URI` (ajuste no topo, se necessário)  
             """
