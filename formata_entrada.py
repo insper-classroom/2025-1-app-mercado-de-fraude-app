@@ -2,16 +2,21 @@ import pandas as pd
 import numpy as np
 import os
 
-def create_refined(df_transactions: pd.DataFrame) -> pd.DataFrame:
+def create_refined(df_novo: pd.DataFrame) -> pd.DataFrame:
     """
-    Recebe um DataFrame de transações (transactions) e retorna um DataFrame 'refined'
-    contendo as features temporais e de deslocamento calculadas.
+    Recebe um DataFrame 'df_novo' (1 ou várias linhas de transação),
+    carrega em memória o 'transactions_raw.feather', concatena (sem salvar),
+    e então executa merge e extração de features, retornando o DataFrame 'refined'
+    completo (com base no raw original + novas linhas).
     """
-    # 1) Carrega os dados de pagadores e vendedores
+
+    # 3.1) Carrega os dados de pagadores e vendedores
     df_payers = pd.read_feather('data/payers_raw.feather')
     df_sellers = pd.read_feather('data/seller_raw.feather')
+    df_transactions = pd.read_feather('data/transactions_raw.feather')
+    df_transactions = pd.concat([df_transactions, df_novo], ignore_index=True)
 
-    # 2) Merge com pagadores
+    # 3.2) Merge com pagadores (via card_id → card_hash)
     df = df_transactions.merge(
         df_payers,
         left_on='card_id',
@@ -20,7 +25,7 @@ def create_refined(df_transactions: pd.DataFrame) -> pd.DataFrame:
         suffixes=('', '_payer')
     )
 
-    # 3) Merge com vendedores
+    # 3.3) Merge com vendedores (via terminal_id)
     df = df.merge(
         df_sellers,
         on='terminal_id',
@@ -28,7 +33,7 @@ def create_refined(df_transactions: pd.DataFrame) -> pd.DataFrame:
         suffixes=('', '_seller')
     )
 
-    # 4) Seleção das colunas necessárias para o raw_merge
+    # 3.4) Seleção das colunas necessárias para o raw_merge
     desired = [
         'transaction_id',
         'tx_datetime',
@@ -46,11 +51,11 @@ def create_refined(df_transactions: pd.DataFrame) -> pd.DataFrame:
     ]
     df_raw_merge = df[desired].copy()
 
-    # 5) Conversão de latitude/longitude para float
+    # 3.5) Converter latitude/longitude para float
     df_raw_merge['latitude']  = df_raw_merge['latitude'].astype(float)
     df_raw_merge['longitude'] = df_raw_merge['longitude'].astype(float)
 
-    # 6) Conversão de datas e extração de features temporais
+    # 3.6) Converter colunas de data para datetime e extrair features temporais
     df_raw_merge['tx_datetime']              = pd.to_datetime(df_raw_merge['tx_datetime'])
     df_raw_merge['card_first_transaction']   = pd.to_datetime(df_raw_merge['card_first_transaction'])
     df_raw_merge['terminal_operation_start'] = pd.to_datetime(df_raw_merge['terminal_operation_start'])
@@ -65,7 +70,7 @@ def create_refined(df_transactions: pd.DataFrame) -> pd.DataFrame:
         df_raw_merge['tx_datetime'] - df_raw_merge['terminal_operation_start']
     ).dt.days
 
-    # 7) Histórico do cartão: valor e intervalo entre transações
+    # 3.7) Histórico do cartão: valor e intervalo entre transações
     df_raw_merge = df_raw_merge.sort_values(['card_id', 'tx_datetime'])
     df_raw_merge['tx_amount_prev'] = (
         df_raw_merge.groupby('card_id')['tx_amount']
@@ -76,7 +81,7 @@ def create_refined(df_transactions: pd.DataFrame) -> pd.DataFrame:
         df_raw_merge['tx_datetime'] - df_raw_merge.groupby('card_id')['tx_datetime'].shift(1)
     ).dt.total_seconds().div(3600).fillna(0)
 
-    # 8) Cálculo de travel_speed via fórmula de Haversine
+    # 3.8) Cálculo de speed via Haversine
     df_raw_merge['prev_lat'] = df_raw_merge.groupby('card_id')['latitude'].shift(1)
     df_raw_merge['prev_lon'] = df_raw_merge.groupby('card_id')['longitude'].shift(1)
 
@@ -99,7 +104,7 @@ def create_refined(df_transactions: pd.DataFrame) -> pd.DataFrame:
     df_raw_merge['speed_kmh']     = df_raw_merge['distance_km'] / df_raw_merge['travel_time_h']
     df_raw_merge['travel_speed']  = df_raw_merge['speed_kmh']
 
-    # 9) Seleção das colunas finais para o “refined”
+    # 3.9) Seleção final de features para o DataFrame refined
     features = [
         'tx_datetime',
         'tx_amount',
