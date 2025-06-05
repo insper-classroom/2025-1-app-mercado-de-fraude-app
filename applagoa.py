@@ -115,7 +115,7 @@ def create_refined(df_transactions: pd.DataFrame) -> pd.DataFrame:
     # 9) Preenche 'estado' com valor fixo 'sp'
     df_raw_merge['estado'] = 'sp'
 
-    # 10) Seleção das colunas finais para o “refined” (incluindo 'estado')
+    # 10) Seleção das colunas finais para o "refined" (incluindo 'estado')
     features = [
         'tx_datetime',
         'tx_amount',
@@ -161,7 +161,7 @@ def load_model_from_mlflow(run_id: str):
     """
     Carrega o modelo salvo no MLflow pelo run_id.
     Retorna (model, True) se carregou com sucesso, ou (None, False) em caso de erro.
-    Internamente, espera que o modelo esteja registrado em “runs:/<run_id>/pipeline-final”.
+    Internamente, espera que o modelo esteja registrado em "runs:/<run_id>/pipeline-final".
     """
     modelo = None
     sucesso = False
@@ -397,6 +397,7 @@ with col_analysis:
             with col_i3:
                 if "tx_amount" in df_raw.columns:
                     total_amount = df_raw["tx_amount"].sum()
+                    avg_amount = df_raw["tx_amount"].mean()
                     st.markdown(
                         f"""
                         <div style="background: white; 
@@ -410,6 +411,9 @@ with col_analysis:
                             </div>
                             <div style="color: #666; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px;">
                                 Volume Total
+                            </div>
+                            <div style="color: #999; font-size: 0.8rem; margin-top: 0.5rem;">
+                                Média: R$ {avg_amount:.2f}
                             </div>
                         </div>
                         """,
@@ -705,25 +709,184 @@ with col_analysis:
                             st.plotly_chart(fig_cm, use_container_width=True)
 
                         # ---------------------------------------------
-                        # 10) Top 10 transações mais suspeitas
+                        # 10) Transações Detectadas como Fraude
                         # ---------------------------------------------
-                        st.markdown("### 🔍 Top 10 Transações Mais Suspeitas")
+                        st.markdown("### 🚨 Transações Detectadas como Fraude")
+                        
+                        # Cria DataFrame com resultados
                         df_results = df_refined.copy()
                         df_results["fraud_score"] = y_pred_proba
                         df_results["fraud_prediction"] = y_pred
+                        
+                        # Adiciona transaction_id se existir no dataset original
+                        if "transaction_id" in df_raw.columns:
+                            df_results["transaction_id"] = df_raw["transaction_id"].values
+                        
+                        # Adiciona is_fraud se existir
+                        if y_true is not None:
+                            df_results["is_fraud_real"] = y_true
+                        
+                        # Filtra apenas transações detectadas como fraude
+                        fraud_transactions = df_results[df_results["fraud_prediction"] == 1].copy()
+                        
+                        if len(fraud_transactions) > 0:
+                            # Ordena por score decrescente
+                            fraud_transactions = fraud_transactions.sort_values("fraud_score", ascending=False)
+                            
+                            # Seleciona apenas as 4 colunas pedidas
+                            display_cols = []
+                            if "transaction_id" in fraud_transactions.columns:
+                                display_cols.append("transaction_id")
+                            display_cols.extend(["fraud_score", "fraud_prediction", "tx_amount"])
+                            
+                            st.markdown(f"**{len(fraud_transactions):,} transações detectadas como fraude:**")
+                            st.dataframe(
+                                fraud_transactions[display_cols],
+                                use_container_width=True,
+                                height=400
+                            )
+                            
+                            # Se há labels reais, mostra estatísticas de acerto
+                            if y_true is not None:
+                                true_positives = (fraud_transactions["is_fraud_real"] == 1).sum()
+                                false_positives = (fraud_transactions["is_fraud_real"] == 0).sum()
+                                
+                                col_acc1, col_acc2 = st.columns(2)
+                                with col_acc1:
+                                    st.metric("✅ Fraudes Reais Detectadas", true_positives)
+                                with col_acc2:
+                                    st.metric("❌ Falsos Positivos", false_positives)
+                        else:
+                            st.info("Nenhuma transação foi detectada como fraude com o threshold atual.")
 
-                        top_fraud_scores = df_results.nlargest(10, "fraud_score")
-                        display_cols = ["fraud_score", "fraud_prediction"]
-                        if "tx_amount" in top_fraud_scores.columns:
-                            display_cols.insert(0, "tx_amount")
-                        for c in ["tx_hour", "travel_speed"]:
-                            if c in top_fraud_scores.columns:
-                                display_cols.append(c)
-
-                        st.dataframe(
-                            top_fraud_scores[display_cols],
-                            use_container_width=True,
+                        # ---------------------------------------------
+                        # 11) Download CSV com todas as predições
+                        # ---------------------------------------------
+                        st.markdown("### 📥 Download dos Resultados")
+                        
+                        # Prepara DataFrame para export (todas as transações)
+                        if "transaction_id" in df_raw.columns:
+                            df_export = pd.DataFrame({
+                                "transaction_id": df_raw["transaction_id"].values,
+                                "fraud_prediction": y_pred,
+                                "fraud_score": y_pred_proba
+                            })
+                        else:
+                            df_export = pd.DataFrame({
+                                "fraud_prediction": y_pred,
+                                "fraud_score": y_pred_proba
+                            })
+                        
+                        # Converte para CSV
+                        csv_data = df_export.to_csv(index=False)
+                        
+                        st.download_button(
+                            label="📊 Baixar Todas as Predições (CSV)",
+                            data=csv_data,
+                            file_name="fraud_predictions.csv",
+                            mime="text/csv",
+                            help=f"Download CSV com {len(df_export):,} transações e suas predições"
                         )
+
+                        # ---------------------------------------------
+                        # 12) Sistema de Log
+                        # ---------------------------------------------
+                        try:
+                            from datetime import datetime
+                            import json
+                            
+                            # Informações para o log
+                            log_info = {
+                                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                "modelo_versao": RUN_ID,
+                                "mlflow_tracking_uri": MLFLOW_TRACKING_URI,
+                                "threshold_usado": DEFAULT_THRESHOLD,
+                                "total_transacoes": len(df_raw),
+                                "fraudes_detectadas": int(y_pred.sum()),
+                                "taxa_alerta": float(y_pred.sum() / len(y_pred) * 100),
+                                "features_utilizadas": list(X_test.columns),
+                                "dataset_info": {
+                                    "tem_labels": y_true is not None,
+                                    "volume_total": float(df_raw["tx_amount"].sum()) if "tx_amount" in df_raw.columns else None,
+                                    "valor_medio": float(df_raw["tx_amount"].mean()) if "tx_amount" in df_raw.columns else None
+                                }
+                            }
+                            
+                            # Adiciona métricas de negócio se houver labels
+                            if y_true is not None:
+                                log_info["metricas_negocio"] = {
+                                    "fraudes_reais": int(y_true.sum()),
+                                    "taxa_deteccao": float(detection_rate),
+                                    "lucro_total": float(business_metrics["lucro_total"]),
+                                    "lucro_legitimas": float(business_metrics["lucro_legitimas"]),
+                                    "prejuizo_fraudes": float(business_metrics["prejuizo_fraudes"]),
+                                    "verdadeiros_positivos": int(true_positives) if 'true_positives' in locals() else None,
+                                    "falsos_positivos": int(false_positives) if 'false_positives' in locals() else None
+                                }
+                            
+                            # Estatísticas dos scores
+                            log_info["estatisticas_scores"] = {
+                                "score_minimo": float(y_pred_proba.min()),
+                                "score_maximo": float(y_pred_proba.max()),
+                                "score_medio": float(y_pred_proba.mean()),
+                                "score_mediano": float(np.median(y_pred_proba))
+                            }
+                            
+                            # Salva no arquivo log.txt (modo append)
+                            with open("log.txt", "a", encoding="utf-8") as f:
+                                f.write("="*80 + "\n")
+                                f.write("EXECUÇÃO DO MODELO DE DETECÇÃO DE FRAUDES\n")
+                                f.write("="*80 + "\n")
+                                f.write(f"Data/Hora: {log_info['timestamp']}\n")
+                                f.write(f"Modelo (Run ID): {log_info['modelo_versao']}\n")
+                                f.write(f"MLflow URI: {log_info['mlflow_tracking_uri']}\n")
+                                f.write(f"Threshold: {log_info['threshold_usado']}\n")
+                                f.write("-"*40 + "\n")
+                                f.write("DADOS PROCESSADOS:\n")
+                                f.write(f"  • Total de transações: {log_info['total_transacoes']:,}\n")
+                                f.write(f"  • Fraudes detectadas: {log_info['fraudes_detectadas']:,}\n")
+                                f.write(f"  • Taxa de alerta: {log_info['taxa_alerta']:.2f}%\n")
+                                
+                                if log_info['dataset_info']['volume_total']:
+                                    f.write(f"  • Volume total: R$ {log_info['dataset_info']['volume_total']:,.2f}\n")
+                                    f.write(f"  • Valor médio: R$ {log_info['dataset_info']['valor_medio']:.2f}\n")
+                                
+                                f.write("-"*40 + "\n")
+                                f.write("FEATURES UTILIZADAS:\n")
+                                for i, feature in enumerate(log_info['features_utilizadas'], 1):
+                                    f.write(f"  {i:2d}. {feature}\n")
+                                
+                                f.write("-"*40 + "\n")
+                                f.write("ESTATÍSTICAS DOS SCORES:\n")
+                                stats = log_info['estatisticas_scores']
+                                f.write(f"  • Score mínimo: {stats['score_minimo']:.4f}\n")
+                                f.write(f"  • Score máximo: {stats['score_maximo']:.4f}\n")
+                                f.write(f"  • Score médio: {stats['score_medio']:.4f}\n")
+                                f.write(f"  • Score mediano: {stats['score_mediano']:.4f}\n")
+                                
+                                if 'metricas_negocio' in log_info:
+                                    f.write("-"*40 + "\n")
+                                    f.write("MÉTRICAS DE NEGÓCIO:\n")
+                                    metricas = log_info['metricas_negocio']
+                                    f.write(f"  • Fraudes reais no dataset: {metricas['fraudes_reais']:,}\n")
+                                    f.write(f"  • Taxa de detecção: {metricas['taxa_deteccao']:.1f}%\n")
+                                    f.write(f"  • Lucro total: R$ {metricas['lucro_total']:,.2f}\n")
+                                    f.write(f"  • Lucro de legítimas: R$ {metricas['lucro_legitimas']:,.2f}\n")
+                                    f.write(f"  • Prejuízo de fraudes: R$ {metricas['prejuizo_fraudes']:,.2f}\n")
+                                    if metricas['verdadeiros_positivos'] is not None:
+                                        f.write(f"  • Verdadeiros positivos: {metricas['verdadeiros_positivos']:,}\n")
+                                        f.write(f"  • Falsos positivos: {metricas['falsos_positivos']:,}\n")
+                                
+                                f.write("-"*40 + "\n")
+                                f.write("DADOS COMPLETOS (JSON):\n")
+                                f.write(json.dumps(log_info, indent=2, ensure_ascii=False) + "\n")
+                                f.write("\n" + "="*80 + "\n\n")
+                            
+                            st.success("✅ Log salvo em log.txt")
+                            
+                        except Exception as e:
+                            st.warning(f"⚠️ Erro ao salvar log: {e}")
+                            st.info("A análise foi executada com sucesso, mas o log não pôde ser salvo.")
 
                     except Exception as e:
                         st.error(f"❌ Erro durante análise: {e}")
@@ -738,7 +901,7 @@ with col_analysis:
             ### 🏁 Como usar:
             1. **Faça upload do dataset** (.feather) à esquerda  
             2. Aguarde que o modelo seja carregado automaticamente via MLflow (run ID no topo).  
-            3. Clique em “🚀 Executar Análise de Fraudes” quando o modelo e dataset estiverem prontos.
+            3. Clique em "🚀 Executar Análise de Fraudes" quando o modelo e dataset estiverem prontos.
 
             ### 📌 Detalhes importantes:
             - O modelo já está pré-configurado para rodar em `runs:/{RUN_ID}/pipeline-final`  
@@ -772,16 +935,6 @@ with col_analysis:
             st.dataframe(df_info.head(3), use_container_width=True)
     else:
         st.info("⏳ Aguardando upload do dataset")
-
-    st.markdown("---")
-    st.markdown(
-        """
-        ### 💡 Dicas Finais:
-        - Garanta que a coluna `tx_amount` exista no dataset (essencial para métricas financeiras).  
-        - Se seu modelo não tiver `predict_proba`, o código usará `predict()` e tratará como probabilidade binária.  
-        - Altere `DEFAULT_THRESHOLD` no topo para ajustar sensibilidade de detecção.
-        """
-    )
 
 # =========================
 # 8) FOOTER (rodapé)
