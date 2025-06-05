@@ -1,32 +1,54 @@
-# Análise de Prevenção de Fraudes - Mercado Livre
+# Sprint Session – 4º Semestre 2025/1
 
-Este repositório contém a aplicação de um modelo de machine learning para análise e prevenção de fraudes em transações realizadas na plataforma do Mercado Livre.
+**Tema:** Prevenção de Fraudes  
+**Empresa Parceira:** Mercado Livre
 
-## Objetivo
+---
 
-Desenvolver e aplicar um modelo preditivo capaz de identificar possíveis fraudes com base em dados históricos de transações. A proposta é auxiliar na detecção precoce de comportamentos suspeitos, reduzindo riscos e prejuízos para a plataforma e seus usuários.
+## 📁 Estrutura do Projeto
 
-## Conteúdo do Repositório
+- `data/`: dados brutos.   
+- `requirements.txt`: dependências do projeto.
 
-- `notebooks/`: notebooks com a análise exploratória de dados, engenharia de atributos e treino do modelo.
-- `src/`: scripts Python com funções auxiliares e pipeline do modelo.
-- `data/`: amostras de dados utilizados no desenvolvimento.
-- `reports`: relatórios que serão necessários entregar ao longo do tempo.
-- `README.md`: este arquivo.
+---
 
-## Tecnologias Utilizadas
+## 🚀 Como Executar o Projeto
 
-- Python
-- Pandas, NumPy
-- Scikit-learn
-- Matplotlib, Seaborn
-- Jupyter Notebook
+1. **Clone o repositório:**
+   ```bash
+   git clone <https://github.com/insper-classroom/2025-1-app-mercado-de-fraude-app>
+   cd 2025-1-app-mercado-de-fraude-app
+   ```
 
+2. **Instale as dependências:**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-## Status
+3. **Configure as credenciais da AWS para acessar o bucket S3:**
 
-🚧 Projeto em desenvolvimento
+   **Linux/Mac:**
+   ```bash
+   export AWS_ACCESS_KEY_ID="SUA_KEY"
+   export AWS_SECRET_ACCESS_KEY="SUA_SECRET"
+   ```
 
-## Licença
+   **Windows (PowerShell):**
+   ```powershell
+   $env:AWS_ACCESS_KEY_ID="SUA_KEY"
+   $env:AWS_SECRET_ACCESS_KEY="SUA_SECRET"
+   ```
 
-Este projeto está licenciado sob a [MIT License](LICENSE).
+4. **Rodar a aplicação com Streamlit:**
+   ```bash
+   streamlit run app.py
+   ```
+
+---
+
+## 👥 Equipe
+
+- Ana Beatriz da Cunha (MLEng)  
+- Isabela Rodrigues (MLOps)  
+- Manoela Saragoça (MLEng)  
+- Gustavo Lagoa (MLOps)
